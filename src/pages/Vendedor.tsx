@@ -9,7 +9,8 @@ import { Button } from '@/src/components/ui/button';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/src/components/ui/table';
 import { Badge } from '@/src/components/ui/badge';
 import { LogOut, Trash2, MonitorPlay, ArrowLeft, Sun, Moon, LogOut as LogOutIcon } from 'lucide-react';
-import { differenceInHours, parseISO } from 'date-fns';
+import { differenceInMinutes, parseISO } from 'date-fns';
+import { supabase } from '@/src/lib/supabase';
 
 export default function Vendedor({ user }: { user: any }) {
   const navigate = useNavigate();
@@ -58,7 +59,8 @@ export default function Vendedor({ user }: { user: any }) {
   }, []);
 
   const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
+    await supabase.auth.signOut();            // encerra a sessão do Supabase
+    await fetch('/api/auth/logout', { method: 'POST' }); // limpa o cookie do Express
     window.location.href = '/';
   };
 
@@ -77,21 +79,38 @@ export default function Vendedor({ user }: { user: any }) {
     
     // Check if dates are valid
     if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
-      const diffHours = differenceInHours(end, start);
-      
-      if (diffHours > 0) {
-        diarias = Math.floor(diffHours / 24);
-        horasExtras = diffHours % 24;
-        if (diarias === 0) diarias = 1;
-        
-        if (horasExtras >= 1 && horasExtras <= 3) taxaHorasExtras = 0;
-        else if (horasExtras >= 4 && horasExtras <= 6) taxaHorasExtras = 0.5;
-        else if (horasExtras > 6) taxaHorasExtras = 1;
-      } else if (diffHours === 0) {
+      // Diferença precisa usando frações reais de horas (minutos / 60), para que
+      // truncagens de arredondamento não somem nem percam diárias no limite.
+      const diffHoras = differenceInMinutes(end, start) / 60;
+
+      if (diffHoras > 0) {
+        diarias = Math.floor(diffHoras / 24);
+        horasExtras = diffHoras - diarias * 24; // horas remanescentes reais, em [0, 24)
+
+        if (diarias >= 1) {
+          // Cobrança de horas extras 100% dinâmica: encontra a regra do tipo
+          // "horas" cuja faixa (de/ate) contém as horas remanescentes e usa o
+          // multiplicador configurado no campo cobrancaDias daquela regra.
+          const horasCheias = Math.floor(horasExtras);
+          const regraHoras = (params.rules || []).find(
+            (r: any) => r.campo === 'horas' && horasCheias >= r.de && horasCheias <= r.ate
+          );
+          taxaHorasExtras = regraHoras ? (Number(regraHoras.cobrancaDias) || 0) : 0;
+        } else {
+          // Locação sub-diária: cobra no mínimo 1 diária, sem acréscimo de horas extras.
+          diarias = 1;
+          horasExtras = 0;
+          taxaHorasExtras = 0;
+        }
+      } else if (diffHoras === 0) {
         diarias = 1;
       }
     }
   }
+
+  // Rótulo inteiro das horas extras remanescentes (apenas para exibição), no
+  // mesmo critério (piso) usado para casar a faixa da regra de horas.
+  const horasExtrasLabel = Math.floor(horasExtras);
 
   const getValorTerceiro = (dias: number) => {
     if (!ativarTerceiro) return 0;
@@ -412,7 +431,13 @@ export default function Vendedor({ user }: { user: any }) {
           {(() => {
             const rules = params.rules || [];
             const ruleDias = rules.find((r: any) => r.campo === 'dias' && diarias >= r.de && diarias <= r.ate);
-            const ruleHoras = horasExtras > 0 ? rules.find((r: any) => r.campo === 'horas' && horasExtras >= r.de && horasExtras <= r.ate) : null;
+            // O banner de horas só reflete acréscimos PARCIAIS (meia diária / tolerância).
+            // Quando o período fecha em diárias cheias (resto incorporado), taxaHorasExtras
+            // e horasExtras ficam zerados, então nenhum alerta de "estouro" é exibido.
+            // Casa a faixa inteira da regra usando o teto do resto fracionário (ex.: 4.2h -> 4).
+            const ruleHoras = horasExtras > 0
+              ? rules.find((r: any) => r.campo === 'horas' && Math.floor(horasExtras) >= r.de && Math.floor(horasExtras) <= r.ate)
+              : null;
             const minutaConfig = params.settings?.find((s: any) => s.key === 'minuta') || { apeloComercial: '🚨 RISCO CIVIL PATRIMONIAL ATIVADO: Contrato sem amparo de frota! O locatário assume responsabilidade integral com o próprio patrimônio por danos causados a terceiros.' };
 
             return (
@@ -433,7 +458,7 @@ export default function Vendedor({ user }: { user: any }) {
                   </div>
                 )}
                 {ruleHoras && (
-                  <div className={`p-3 rounded-md font-semibold border ${horasExtras >= 7 ? 'bg-red-500/10 border-red-500/30 text-red-400' : (horasExtras <= 3 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-amber-500/10 border-amber-500/30 text-amber-500')}`}>
+                  <div className={`p-3 rounded-md font-semibold border ${taxaHorasExtras === 0 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-amber-500/10 border-amber-500/30 text-amber-500'}`}>
                     {ruleHoras.texto}
                   </div>
                 )}
@@ -480,7 +505,7 @@ export default function Vendedor({ user }: { user: any }) {
                               >
                                 <div className={`font-bold text-lg ${isSelected ? 'text-emerald-400' : 'text-zinc-300'}`}>R$ {prop.total.toFixed(2)}</div>
                                 <div className="text-xs text-zinc-500 mt-1">
-                                  {diarias}d {horasExtras > 0 ? `+ ${horasExtras}h` : ''}
+                                  {diarias}d {horasExtrasLabel > 0 ? `+ ${horasExtrasLabel}h` : ''}
                                 </div>
                               </TableCell>
                             )
@@ -519,7 +544,7 @@ export default function Vendedor({ user }: { user: any }) {
                     </div>
                     <div className="flex justify-between items-center border-b border-zinc-800 pb-2">
                       <span className="text-zinc-400">Quantidade de Dias</span>
-                      <span className="font-medium text-white">{diarias} diárias {horasExtras > 0 ? `e ${horasExtras} horas extras` : ''}</span>
+                      <span className="font-medium text-white">{diarias} diárias {horasExtrasLabel > 0 ? `e ${horasExtrasLabel} horas extras` : ''}</span>
                     </div>
                     
                     <div className="pt-2">

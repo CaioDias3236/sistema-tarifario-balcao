@@ -260,7 +260,7 @@ export default function Supervisor({ user }: { user: any }) {
             <Card className="bg-zinc-900 border-zinc-800">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-white">Regras de Negócio</CardTitle>
-                <Button size="sm" onClick={() => handleSave('rules', { campo: 'dias', de: 0, ate: 0, texto: 'Nova Regra' })}>
+                <Button size="sm" onClick={() => handleSave('rules', { campo: 'dias', de: 0, ate: 0, cobrancaDias: 0, texto: 'Nova Regra' })}>
                   <Plus className="w-4 h-4 mr-2"/> Nova Regra
                 </Button>
               </CardHeader>
@@ -271,6 +271,7 @@ export default function Supervisor({ user }: { user: any }) {
                       <TableHead>Campo</TableHead>
                       <TableHead>De</TableHead>
                       <TableHead>Até</TableHead>
+                      <TableHead>Cobrança (Dias)</TableHead>
                       <TableHead>Mensagem</TableHead>
                       <TableHead></TableHead>
                     </TableRow>
@@ -289,6 +290,16 @@ export default function Supervisor({ user }: { user: any }) {
                         </TableCell>
                         <TableCell><Input type="number" value={r.de} onChange={e => setRules(rules.map(x => x.id === r.id ? {...x, de: parseInt(e.target.value)||0} : x))} /></TableCell>
                         <TableCell><Input type="number" value={r.ate} onChange={e => setRules(rules.map(x => x.id === r.id ? {...x, ate: parseInt(e.target.value)||0} : x))} /></TableCell>
+                        <TableCell>
+                          <Input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max="999"
+                            value={r.cobrancaDias ?? 0}
+                            onChange={e => setRules(rules.map(x => x.id === r.id ? {...x, cobrancaDias: parseFloat(e.target.value) || 0} : x))}
+                          />
+                        </TableCell>
                         <TableCell><Input value={r.texto} onChange={e => setRules(rules.map(x => x.id === r.id ? {...x, texto: e.target.value} : x))} /></TableCell>
                         <TableCell className="flex gap-2">
                           <Button size="icon" variant="ghost" className="text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10" onClick={() => handleSave('rules', r)}><Save className="w-4 h-4" /></Button>

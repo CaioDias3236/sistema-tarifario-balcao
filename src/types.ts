@@ -25,9 +25,11 @@ export interface Tax {
 
 export interface Rule {
   id: number;
-  tipo: "dias" | "horas";
+  campo: "dias" | "horas";
   de: number;
   ate: number;
+  /** Multiplicador da diária cobrado quando a regra (do tipo "horas") se aplica. Ex.: 0, 0.5, 1, 1.5. */
+  cobrancaDias: number;
   texto: string;
 }
 
