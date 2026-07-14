@@ -1,7 +1,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
-import { createServer as createViteServer } from "vite";
+import os from "os";
 import cookieParser from "cookie-parser";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
@@ -12,7 +12,11 @@ dotenv.config({ path: ".env.local" });
 dotenv.config();
 
 const JWT_SECRET = process.env.JWT_SECRET || "super-secret-sda-v8-key";
-const DB_FILE = path.join(process.cwd(), "db.json");
+// Na Vercel o filesystem do projeto é read-only; apenas /tmp é gravável (e
+// efêmero, por instância). Fora dela, o db.json fica na raiz e é persistente.
+const DB_FILE = process.env.VERCEL
+  ? path.join(os.tmpdir(), "db.json")
+  : path.join(process.cwd(), "db.json");
 
 // Configuração do Supabase (reaproveita as mesmas vars do cliente Vite)
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
@@ -100,9 +104,14 @@ const defaultDb: Database = {
   proposals: [],
 };
 
-// Initialize DB file
-if (!fs.existsSync(DB_FILE)) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(defaultDb, null, 2));
+// Initialize DB file (best-effort: em serverless o disco do projeto é read-only;
+// no /tmp da Vercel funciona, mas de forma efêmera).
+try {
+  if (!fs.existsSync(DB_FILE)) {
+    fs.writeFileSync(DB_FILE, JSON.stringify(defaultDb, null, 2));
+  }
+} catch (e) {
+  console.warn("Não foi possível inicializar o db.json (filesystem read-only?):", e);
 }
 
 function readDb(): Database {
@@ -139,12 +148,12 @@ function supervisorMiddleware(req: any, res: any, next: any) {
   next();
 }
 
-async function startServer() {
-  const app = express();
-  const PORT = Number(process.env.PORT) || 3000;
-
-  app.use(express.json());
-  app.use(cookieParser());
+// App no nível do módulo: na Vercel ele é importado e usado como handler da
+// Serverless Function (export default no fim do arquivo). As rotas abaixo são
+// registradas de forma síncrona no import, sem depender de startServer().
+const app = express();
+app.use(express.json());
+app.use(cookieParser());
 
   // --- API Routes ---
   
@@ -352,8 +361,14 @@ async function startServer() {
     });
   });
 
-  // Vite middleware for development
+// Em dev sobe o Vite em middleware; em produção "node" (npm start) serve o dist.
+// Na Vercel (serverless) nada disso roda — o app é exportado como Serverless Function.
+async function startServer() {
   if (process.env.NODE_ENV !== "production") {
+    // Import dinâmico via variável para o bundler da Vercel não empacotar o Vite
+    // na function — este ramo só é avaliado em desenvolvimento local.
+    const vitePkg = "vite";
+    const { createServer: createViteServer } = await import(vitePkg);
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -367,9 +382,16 @@ async function startServer() {
     });
   }
 
+  const PORT = Number(process.env.PORT) || 3000;
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }
 
-startServer();
+// Fora da Vercel, sobe um servidor HTTP normal (dev local ou `npm start`).
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+// Handler da Serverless Function na Vercel (@vercel/node usa o export default).
+export default app;
