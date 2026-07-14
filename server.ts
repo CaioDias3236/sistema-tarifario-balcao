@@ -4,9 +4,28 @@ import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import cookieParser from "cookie-parser";
 import jwt from "jsonwebtoken";
+import dotenv from "dotenv";
+import { createClient } from "@supabase/supabase-js";
+
+// Carrega variáveis de ambiente (.env.local tem prioridade sobre .env)
+dotenv.config({ path: ".env.local" });
+dotenv.config();
 
 const JWT_SECRET = process.env.JWT_SECRET || "super-secret-sda-v8-key";
 const DB_FILE = path.join(process.cwd(), "db.json");
+
+// Configuração do Supabase (reaproveita as mesmas vars do cliente Vite)
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+
+// Cookie seguro só em produção (HTTPS). Em dev (http://localhost) o navegador
+// rejeitaria um cookie Secure/SameSite=None, quebrando a sessão.
+const IS_PROD = process.env.NODE_ENV === "production";
+const COOKIE_OPTS = {
+  httpOnly: true as const,
+  secure: IS_PROD,
+  sameSite: (IS_PROD ? "none" : "lax") as "none" | "lax",
+};
 
 // --- Mock Database Structure ---
 type Database = {
@@ -39,10 +58,10 @@ const defaultDb: Database = {
     { id: 3, nome: "Taxa Balcão", valor: 0, tipo: "flex", flex_mode: true, flex_value: 0, active: true },
   ],
   rules: [
-    { id: 1, campo: "dias", de: 16, ate: 999, texto: "⚠️ CUIDADO COM ALUGUEL: Contratos longos requerem checagem de cadastro estrito." },
-    { id: 2, campo: "horas", de: 0, ate: 3, texto: "ℹ️ Tolerância comercial: Período curto de relógio. Não cobrar hora extra." },
-    { id: 3, campo: "horas", de: 4, ate: 6, texto: "🌓 Meia Diária Ativada: Rebarba de relógio gera acréscimo de 0.5 diária no contrato." },
-    { id: 4, campo: "horas", de: 7, ate: 999, texto: "🚨 Outra Diária Integrada: Limite de tolerância estourado. Cobrança de 1 diária extra." }
+    { id: 1, campo: "dias", de: 16, ate: 999, cobrancaDias: 0, texto: "⚠️ CUIDADO COM ALUGUEL: Contratos longos requerem checagem de cadastro estrito." },
+    { id: 2, campo: "horas", de: 0, ate: 3, cobrancaDias: 0, texto: "ℹ️ Tolerância comercial: Período curto de relógio. Não cobrar hora extra." },
+    { id: 3, campo: "horas", de: 4, ate: 6, cobrancaDias: 0.5, texto: "🌓 Meia Diária Ativada: Rebarba de relógio gera acréscimo de 0.5 diária no contrato." },
+    { id: 4, campo: "horas", de: 7, ate: 999, cobrancaDias: 1, texto: "🚨 Outra Diária Integrada: Limite de tolerância estourado. Cobrança de 1 diária extra." }
   ],
   franchises: [
     { id: 1, combo: "REDUZIDA", tipo: "padrao", valor: 50 },
@@ -123,15 +142,54 @@ async function startServer() {
     
     if (user) {
       const token = jwt.sign({ id: user.id, username: user.username, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: '1d' });
-      res.cookie("token", token, { httpOnly: true, secure: true, sameSite: 'none' });
+      res.cookie("token", token, COOKIE_OPTS);
       res.json({ user: { id: user.id, username: user.username, role: user.role, name: user.name } });
     } else {
       res.status(401).json({ error: "Invalid credentials" });
     }
   });
 
+  // Ponte de sessão: recebe o access_token do Supabase (login novo), valida-o
+  // no Supabase e emite o cookie JWT legado para que a API de dados (que ainda
+  // usa cookie) continue funcionando sem alterar as telas de tarifário.
+  app.post("/api/auth/bridge", async (req, res) => {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      return res.status(500).json({ error: "Supabase não configurado no servidor (.env.local)" });
+    }
+
+    const authHeader = req.headers.authorization || "";
+    const accessToken = authHeader.startsWith("Bearer ")
+      ? authHeader.slice(7)
+      : req.body?.access_token;
+    if (!accessToken) return res.status(401).json({ error: "Access token ausente" });
+
+    // Client com o token do usuário: getUser valida o token e o RLS garante que
+    // o usuário só consegue ler o próprio perfil (não confiamos no cliente).
+    const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    });
+
+    const { data: userData, error: userErr } = await sb.auth.getUser(accessToken);
+    if (userErr || !userData?.user) {
+      return res.status(401).json({ error: "Token do Supabase inválido" });
+    }
+    const sUser = userData.user;
+
+    // Papel real vindo do banco (tabela perfis), normalizado para o formato legado.
+    const { data: perfil } = await sb.from("perfis").select("*").eq("id", sUser.id).single();
+    const rawRole = String(perfil?.role ?? perfil?.papel ?? "VENDEDOR").toUpperCase();
+    const role = rawRole.includes("SUPER") ? "SUPERVISOR" : "VENDEDOR";
+    const name = perfil?.name ?? perfil?.nome ?? sUser.email ?? "Usuário";
+
+    const appUser = { id: sUser.id, username: sUser.email, email: sUser.email, role, name };
+    const token = jwt.sign(appUser, JWT_SECRET, { expiresIn: "1d" });
+    res.cookie("token", token, COOKIE_OPTS);
+    res.json({ user: appUser });
+  });
+
   app.post("/api/auth/logout", (req, res) => {
-    res.clearCookie("token", { httpOnly: true, secure: true, sameSite: 'none' });
+    res.clearCookie("token", COOKIE_OPTS);
     res.json({ success: true });
   });
 

@@ -6,7 +6,7 @@ import { Button } from '@/src/components/ui/button';
 import { Car } from 'lucide-react';
 import { supabase } from '@/src/lib/supabase';
 
-export default function Login({ onLogin }: { onLogin: (user: any) => void }) {
+export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -16,41 +16,26 @@ export default function Login({ onLogin }: { onLogin: (user: any) => void }) {
     e.preventDefault();
     setError('');
     setLoading(true);
-    
+
     try {
-      // 1. Autentica o usuário no Supabase Auth
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
+      // Autentica no Supabase Auth. O App.tsx escuta onAuthStateChange, faz a
+      // ponte com o Express (cookie) e redireciona — não precisamos fazer nada
+      // além de sinalizar erro aqui.
+      const { error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
       if (authError) {
-        setError(authError.message === 'Invalid login credentials' 
-          ? 'E-mail ou senha incorretos' 
+        setError(authError.message === 'Invalid login credentials'
+          ? 'E-mail ou senha incorretos'
           : authError.message
         );
         setLoading(false);
-        return;
       }
-
-      if (data?.user) {
-        // 2. Busca o perfil do usuário logado na tabela 'perfis'
-        const { data: perfil, error: perfilError } = await supabase
-          .from('perfis')
-          .select('*')
-          .eq('id', data.user.id)
-          .single();
-
-        if (perfilError) {
-          console.warn('Perfil não encontrado. Usando dados padrão:', perfilError.message);
-          onLogin({ ...data.user, role: 'vendedor' });
-        } else {
-          onLogin({ ...data.user, ...perfil });
-        }
-      }
+      // Em caso de sucesso mantemos loading=true: o redirect do App.tsx assume.
     } catch (err) {
       setError('Erro de conexão com o banco de dados');
-    } finally {
       setLoading(false);
     }
   };
