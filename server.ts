@@ -37,6 +37,7 @@ type Database = {
   interestRates: any[];
   thirdParties: any[];
   settings: any[];
+  vantagens: any[];
   proposals: any[];
 };
 
@@ -83,6 +84,7 @@ const defaultDb: Database = {
   settings: [
     { id: 1, key: 'minuta', template: 'FEITO POR {{FEITO_POR}} - COMPOSIÇÃO DO FECHAMENTO: [{{PAGTO_BREAKDOWN}}] - KM LIVRE COM COBERTURA PARA NATAL E LITORAL/RN COM PROTEÇÃO COM RAIO DE 200KM DE NATAL/RN. ATENÇÃO PRORROGAÇÃO DE CONTRATO SOMENTE EM LOJA PARA VERIFICARMOS. DEVOLUÇÃO MESMO LOCAL DA RETIRADA - OBS EXTRA: {{OBS_EXTRA}}', apeloComercial: '🚨 RISCO CIVIL PATRIMONIAL ATIVADO: Contrato sem amparo de frota! O locatário assume responsabilidade integral com o próprio patrimônio por danos causados a terceiros.' }
   ],
+  vantagens: [],
   proposals: [],
 };
 
@@ -242,6 +244,7 @@ async function startServer() {
   createCrud("third-parties", "thirdParties", true);
   createCrud("users", "users", true);
   createCrud("settings", "settings", true);
+  createCrud("vantagens", "vantagens", true);
   
   // Proposals
   app.get("/api/proposals", authMiddleware, (req: any, res) => {
@@ -271,7 +274,8 @@ async function startServer() {
       interestRates: db.interestRates,
       thirdParties: db.thirdParties,
       rules: db.rules,
-      settings: db.settings
+      settings: db.settings,
+      vantagens: db.vantagens || []
     });
   });
 

@@ -20,6 +20,8 @@ export default function Supervisor({ user }: { user: any }) {
   const [rules, setRules] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [settings, setSettings] = useState<any[]>([]);
+  const [vantagens, setVantagens] = useState<any[]>([]);
+  const [novaVantagem, setNovaVantagem] = useState('');
 
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
 
@@ -37,7 +39,7 @@ export default function Supervisor({ user }: { user: any }) {
   }, []);
 
   const fetchData = async () => {
-    const [c, t, f, tp, ir, r, u, s] = await Promise.all([
+    const [c, t, f, tp, ir, r, u, s, v] = await Promise.all([
       fetch('/api/categories').then(r => r.json()),
       fetch('/api/taxes').then(r => r.json()),
       fetch('/api/franchises').then(r => r.json()),
@@ -45,7 +47,8 @@ export default function Supervisor({ user }: { user: any }) {
       fetch('/api/interest-rates').then(r => r.json()),
       fetch('/api/rules').then(r => r.json()),
       fetch('/api/users').then(r => r.json()),
-      fetch('/api/settings').then(r => r.json())
+      fetch('/api/settings').then(r => r.json()),
+      fetch('/api/vantagens').then(r => r.json())
     ]);
     setCategories(c);
     setTaxes(t);
@@ -55,6 +58,14 @@ export default function Supervisor({ user }: { user: any }) {
     setRules(r);
     setUsers(u);
     setSettings(s);
+    setVantagens(Array.isArray(v) ? v : []);
+  };
+
+  const handleAddVantagem = async () => {
+    const descricao = novaVantagem.trim();
+    if (!descricao) return;
+    await handleSave('vantagens', { descricao });
+    setNovaVantagem('');
   };
 
   const handleSave = async (endpoint: string, data: any) => {
@@ -100,6 +111,7 @@ export default function Supervisor({ user }: { user: any }) {
             <TabsTrigger value="juros">Juros</TabsTrigger>
             <TabsTrigger value="regras">Regras</TabsTrigger>
             <TabsTrigger value="minuta">Minuta</TabsTrigger>
+            <TabsTrigger value="vantagens">Vantagens Locadora</TabsTrigger>
             <TabsTrigger value="usuarios">Usuários</TabsTrigger>
           </TabsList>
           
@@ -387,6 +399,59 @@ export default function Supervisor({ user }: { user: any }) {
                         <TableCell className="flex gap-2">
                           <Button size="icon" variant="ghost" className="text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10" onClick={() => handleSave('interest-rates', ir)}><Save className="w-4 h-4" /></Button>
                           <Button size="icon" variant="ghost" className="text-red-500 hover:text-red-400 hover:bg-red-500/10" onClick={() => handleDelete('interest-rates', ir.id)}><Trash2 className="w-4 h-4" /></Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="vantagens">
+            <Card className="bg-zinc-900 border-zinc-800">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-white">Vantagens Locadora</CardTitle>
+                <p className="text-sm text-zinc-500">Benefícios exibidos ao cliente na tela de cotação.</p>
+              </CardHeader>
+              <CardContent>
+                <div className="flex gap-2 mb-4">
+                  <Input
+                    placeholder="Descreva uma nova vantagem (ex.: KM livre em todo o RN)"
+                    value={novaVantagem}
+                    onChange={e => setNovaVantagem(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleAddVantagem(); }}
+                  />
+                  <Button onClick={handleAddVantagem} className="shrink-0">
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                </div>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Descrição da Vantagem</TableHead>
+                      <TableHead className="w-[110px] text-right">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {vantagens.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={2} className="text-center text-zinc-500 py-6">
+                          Nenhuma vantagem cadastrada ainda.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {vantagens.map(v => (
+                      <TableRow key={v.id}>
+                        <TableCell>
+                          <Input
+                            value={v.descricao ?? ''}
+                            onChange={e => setVantagens(vantagens.map(x => x.id === v.id ? {...x, descricao: e.target.value} : x))}
+                          />
+                        </TableCell>
+                        <TableCell className="flex gap-2 justify-end">
+                          <Button size="icon" variant="ghost" className="text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10" onClick={() => handleSave('vantagens', v)}><Save className="w-4 h-4" /></Button>
+                          <Button size="icon" variant="ghost" className="text-red-500 hover:text-red-400 hover:bg-red-500/10" onClick={() => handleDelete('vantagens', v.id)}><Trash2 className="w-4 h-4" /></Button>
                         </TableCell>
                       </TableRow>
                     ))}

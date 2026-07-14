@@ -8,7 +8,7 @@ import { Checkbox } from '@/src/components/ui/checkbox';
 import { Button } from '@/src/components/ui/button';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/src/components/ui/table';
 import { Badge } from '@/src/components/ui/badge';
-import { LogOut, Trash2, MonitorPlay, ArrowLeft, Sun, Moon, LogOut as LogOutIcon } from 'lucide-react';
+import { LogOut, Trash2, MonitorPlay, ArrowLeft, Sun, Moon, LogOut as LogOutIcon, CheckCircle2 } from 'lucide-react';
 import { differenceInMinutes, parseISO } from 'date-fns';
 import { supabase } from '@/src/lib/supabase';
 
@@ -624,6 +624,26 @@ export default function Vendedor({ user }: { user: any }) {
 
                 {!presentationMode && (
                   <div className="space-y-6">
+                    <Card className="bg-zinc-900 border-emerald-500/20 h-fit">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-lg text-emerald-400">Vantagens Locadora</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        {params.vantagens && params.vantagens.length > 0 ? (
+                          <ul className="space-y-2">
+                            {params.vantagens.map((v: any) => (
+                              <li key={v.id} className="flex items-start gap-2 text-sm text-zinc-300">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
+                                <span>{v.descricao}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-sm text-zinc-500">Nenhuma vantagem cadastrada.</p>
+                        )}
+                      </CardContent>
+                    </Card>
+
                     <Card className={Math.abs(saldoRestante) > 0.01 ? 'border-amber-500/30 bg-zinc-900' : 'border-emerald-500/30 bg-zinc-900'}>
                       <CardHeader className="pb-3">
                       <CardTitle className="text-lg">Status do Pagamento</CardTitle>
