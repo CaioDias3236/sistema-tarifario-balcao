@@ -69,7 +69,12 @@ export default function Supervisor({ user }: { user: any }) {
   };
 
   const handleSave = async (endpoint: string, data: any) => {
-    const method = data.id && typeof data.id === 'number' && data.id > 1000 ? 'PUT' : 'POST';
+    // Vantagens são persistidas no Supabase, cujo ID (identity) começa em 1 — a
+    // heurística `id > 1000` (válida para as coleções do db.json que usam Date.now())
+    // não serve aqui: qualquer id presente significa registro existente => PUT.
+    const method = endpoint === 'vantagens'
+      ? (data.id ? 'PUT' : 'POST')
+      : (data.id && typeof data.id === 'number' && data.id > 1000 ? 'PUT' : 'POST');
     const url = method === 'PUT' ? `/api/${endpoint}/${data.id}` : `/api/${endpoint}`;
     await fetch(url, {
       method,

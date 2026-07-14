@@ -17,6 +17,20 @@ const DB_FILE = path.join(process.cwd(), "db.json");
 // Configuração do Supabase (reaproveita as mesmas vars do cliente Vite)
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+// Client de backend com a service_role key: ignora o RLS do Supabase. É seguro
+// porque as rotas Express já autenticam (cookie JWT) e autorizam (supervisorMiddleware)
+// antes de tocar no banco — o servidor é a camada confiável. Fica null se a chave
+// não estiver no .env.local, e as rotas de vantagens respondem 500 explicando.
+const supabaseAdmin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
+  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    })
+  : null;
+
+const SUPABASE_MISSING_MSG =
+  "Supabase service role não configurado no servidor (defina SUPABASE_SERVICE_ROLE_KEY no .env.local)";
 
 // Cookie seguro só em produção (HTTPS). Em dev (http://localhost) o navegador
 // rejeitaria um cookie Secure/SameSite=None, quebrando a sessão.
@@ -37,7 +51,6 @@ type Database = {
   interestRates: any[];
   thirdParties: any[];
   settings: any[];
-  vantagens: any[];
   proposals: any[];
 };
 
@@ -84,7 +97,6 @@ const defaultDb: Database = {
   settings: [
     { id: 1, key: 'minuta', template: 'FEITO POR {{FEITO_POR}} - COMPOSIÇÃO DO FECHAMENTO: [{{PAGTO_BREAKDOWN}}] - KM LIVRE COM COBERTURA PARA NATAL E LITORAL/RN COM PROTEÇÃO COM RAIO DE 200KM DE NATAL/RN. ATENÇÃO PRORROGAÇÃO DE CONTRATO SOMENTE EM LOJA PARA VERIFICARMOS. DEVOLUÇÃO MESMO LOCAL DA RETIRADA - OBS EXTRA: {{OBS_EXTRA}}', apeloComercial: '🚨 RISCO CIVIL PATRIMONIAL ATIVADO: Contrato sem amparo de frota! O locatário assume responsabilidade integral com o próprio patrimônio por danos causados a terceiros.' }
   ],
-  vantagens: [],
   proposals: [],
 };
 
@@ -244,8 +256,56 @@ async function startServer() {
   createCrud("third-parties", "thirdParties", true);
   createCrud("users", "users", true);
   createCrud("settings", "settings", true);
-  createCrud("vantagens", "vantagens", true);
-  
+
+  // --- Vantagens Locadora — persistidas no Supabase (tabela public.vantagens),
+  // não mais no db.json. O ID é gerado pelo banco (coluna identity).
+  app.get("/api/vantagens", authMiddleware, async (req, res) => {
+    if (!supabaseAdmin) return res.status(500).json({ error: SUPABASE_MISSING_MSG });
+    const { data, error } = await supabaseAdmin
+      .from("vantagens")
+      .select("*")
+      .order("id", { ascending: true });
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data ?? []);
+  });
+
+  app.post("/api/vantagens", authMiddleware, supervisorMiddleware, async (req, res) => {
+    if (!supabaseAdmin) return res.status(500).json({ error: SUPABASE_MISSING_MSG });
+    // Só a descrição é enviada; o ID é gerado automaticamente pelo banco.
+    const { data, error } = await supabaseAdmin
+      .from("vantagens")
+      .insert({ descricao: req.body?.descricao })
+      .select()
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  app.put("/api/vantagens/:id", authMiddleware, supervisorMiddleware, async (req, res) => {
+    if (!supabaseAdmin) return res.status(500).json({ error: SUPABASE_MISSING_MSG });
+    const id = parseInt(req.params.id);
+    const { data, error } = await supabaseAdmin
+      .from("vantagens")
+      .update({ descricao: req.body?.descricao })
+      .eq("id", id)
+      .select()
+      .maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    if (!data) return res.status(404).json({ error: "Not found" });
+    res.json(data);
+  });
+
+  app.delete("/api/vantagens/:id", authMiddleware, supervisorMiddleware, async (req, res) => {
+    if (!supabaseAdmin) return res.status(500).json({ error: SUPABASE_MISSING_MSG });
+    const id = parseInt(req.params.id);
+    const { error } = await supabaseAdmin
+      .from("vantagens")
+      .delete()
+      .eq("id", id);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true });
+  });
+
   // Proposals
   app.get("/api/proposals", authMiddleware, (req: any, res) => {
     const db = readDb();
@@ -265,8 +325,21 @@ async function startServer() {
   });
 
   // System State API to get all parameters for quotation in one request
-  app.get("/api/system-params", authMiddleware, (req, res) => {
+  app.get("/api/system-params", authMiddleware, async (req, res) => {
     const db = readDb();
+
+    // Vantagens vêm do Supabase (não mais do db.json). Se o client não estiver
+    // configurado ou a consulta falhar, degradamos para lista vazia para não
+    // quebrar o carregamento da tela de cotação.
+    let vantagens: any[] = [];
+    if (supabaseAdmin) {
+      const { data } = await supabaseAdmin
+        .from("vantagens")
+        .select("*")
+        .order("id", { ascending: true });
+      vantagens = data ?? [];
+    }
+
     res.json({
       categories: db.categories.filter(c => c.active !== false),
       taxes: db.taxes.filter(t => t.active !== false),
@@ -275,7 +348,7 @@ async function startServer() {
       thirdParties: db.thirdParties,
       rules: db.rules,
       settings: db.settings,
-      vantagens: db.vantagens || []
+      vantagens
     });
   });
 
