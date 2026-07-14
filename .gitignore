@@ -7,3 +7,7 @@ coverage/
 .env*
 !.env.example
 .env.local
+
+# Banco local em arquivo (criado automaticamente pelo server a partir de defaultDb).
+# Contem dados locais e senhas em texto puro — nao versionar.
+db.json
