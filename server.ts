@@ -368,6 +368,9 @@ app.use(cookieParser());
   // escrita — definido na criação ou redefinido na edição (em branco = mantém).
   const normalizeRole = (r: any) =>
     String(r ?? "VENDEDOR").toUpperCase().includes("SUPER") ? "SUPERVISOR" : "VENDEDOR";
+  // A tabela perfis tem um CHECK que exige role minúsculo ('vendedor'/'supervisor').
+  // Guardamos minúsculo no banco, mas expomos MAIÚSCULO na API (o que o front usa).
+  const roleToDb = (r: any) => (normalizeRole(r) === "SUPERVISOR" ? "supervisor" : "vendedor");
 
   app.get("/api/users", authMiddleware, supervisorMiddleware, async (req, res) => {
     if (!supabaseAdmin) return res.status(500).json({ error: SUPABASE_MISSING_MSG });
@@ -396,10 +399,14 @@ app.use(cookieParser());
     if (error) return res.status(400).json({ error: error.message });
     // upsert em perfis (id = id do Auth); upsert evita conflito com trigger que já crie a linha.
     const { error: perr } = await supabaseAdmin.from("perfis").upsert(
-      { id: created.user.id, nome: String(name).trim(), role, updated_at: new Date().toISOString() },
+      { id: created.user.id, nome: String(name).trim(), role: roleToDb(role), updated_at: new Date().toISOString() },
       { onConflict: "id" }
     );
-    if (perr) return res.status(500).json({ error: perr.message });
+    if (perr) {
+      // Rollback: desfaz o usuário do Auth para não deixar órfão (Auth sem perfil).
+      await supabaseAdmin.auth.admin.deleteUser(created.user.id);
+      return res.status(500).json({ error: perr.message });
+    }
     res.json({ id: created.user.id, login, name, role });
   });
 
@@ -410,7 +417,7 @@ app.use(cookieParser());
     const role = normalizeRole(req.body?.role);
     if (!name || !String(name).trim()) return res.status(400).json({ error: "Nome é obrigatório." });
     const { error: perr } = await supabaseAdmin.from("perfis").upsert(
-      { id, nome: String(name).trim(), role, updated_at: new Date().toISOString() },
+      { id, nome: String(name).trim(), role: roleToDb(role), updated_at: new Date().toISOString() },
       { onConflict: "id" }
     );
     if (perr) return res.status(500).json({ error: perr.message });
