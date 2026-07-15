@@ -207,21 +207,19 @@ export default function Vendedor({ user }: { user: any }) {
 
     const subtotal = valorDiariaCobrado + valorFranquiaCobrado + valorTerceirosCobrado + valorTaxas;
     
-    // Juros
-    let totalJuros = 0;
-    pagamentos.forEach(pag => {
-      if (!pag.semJuros && pag.tipo.startsWith('Cartão')) {
-        const parcelas = parseInt(pag.tipo.replace('Cartão ', '')) || 1;
-        const taxaObj = params.interestRates.find((ir: any) => ir.parcelas === parcelas);
-        if (taxaObj) {
-          totalJuros += pag.valor * (taxaObj.taxa / 100);
-        }
-      }
-    });
+    // Taxa fixa de parcelamento: acréscimo fixo (R$) pela MAIOR parcela de cartão
+    // usada no fatiamento (linhas "S/J" e PIX não contam). Somada UMA vez ao total —
+    // não incide sobre diária/franquia/terceiros/taxas.
+    const parcelasCartao = pagamentos
+      .filter(pag => !pag.semJuros && pag.tipo.startsWith('Cartão'))
+      .map(pag => parseInt(pag.tipo.replace('Cartão ', '')) || 0);
+    const maxParcelas = parcelasCartao.length ? Math.max(...parcelasCartao) : 0;
+    const taxaObj = maxParcelas > 0 ? params.interestRates.find((ir: any) => ir.parcelas === maxParcelas) : null;
+    const taxaParcelamento = taxaObj ? (Number(taxaObj.taxa) || 0) : 0;
 
-    const total = subtotal + totalJuros;
+    const total = subtotal + taxaParcelamento;
 
-    return { total, subtotal, diariaBase, valorFranquiaDiario, totalJuros, valorTaxas, valorTerceirosCobrado };
+    return { total, subtotal, diariaBase, valorFranquiaDiario, taxaParcelamento, valorTaxas, valorTerceirosCobrado };
   };
 
   const getMinuta = () => {
@@ -240,12 +238,9 @@ export default function Vendedor({ user }: { user: any }) {
     const pagBreakdown = pagamentos.filter(p => p.valor > 0).map(pag => {
       if (pag.tipo === 'PIX') return `PIX À VISTA: R$ ${pag.valor.toFixed(2)}`;
       const parcelas = parseInt(pag.tipo.replace('Cartão ', '')) || 1;
-      let juros = 0;
-      if (!pag.semJuros) {
-        const taxaObj = params.interestRates?.find((ir: any) => ir.parcelas === parcelas);
-        if (taxaObj) juros = pag.valor * (taxaObj.taxa / 100);
-      }
-      return `CARTÃO DE CRÉDITO EM ${parcelas}X DE R$ ${((pag.valor + juros) / parcelas).toFixed(2)}`;
+      // A taxa fixa de parcelamento já está embutida no total (e no valor digitado no
+      // fatiamento), então a parcela é simplesmente o valor da linha dividido pelas vezes.
+      return `CARTÃO DE CRÉDITO EM ${parcelas}X DE R$ ${(pag.valor / parcelas).toFixed(2)}`;
     }).join(' + ');
     
     let result = template
@@ -683,10 +678,10 @@ export default function Vendedor({ user }: { user: any }) {
                           <span>Taxas Adicionais</span>
                           <span>R$ {prop.valorTaxas.toFixed(2)}</span>
                         </div>
-                        {prop.totalJuros > 0 && !presentationMode && (
+                        {prop.taxaParcelamento > 0 && !presentationMode && (
                           <div className="flex justify-between text-amber-500">
-                            <span>Juros de Parcelamento</span>
-                            <span>R$ {prop.totalJuros.toFixed(2)}</span>
+                            <span>Taxa de Parcelamento</span>
+                            <span>R$ {prop.taxaParcelamento.toFixed(2)}</span>
                           </div>
                         )}
                       </div>

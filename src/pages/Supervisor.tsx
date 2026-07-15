@@ -283,7 +283,7 @@ export default function Supervisor({ user }: { user: any }) {
             <TabsTrigger value="franquias">Franquias</TabsTrigger>
             <TabsTrigger value="terceiros">Terceiros</TabsTrigger>
             <TabsTrigger value="taxas">Taxas e Serviços</TabsTrigger>
-            <TabsTrigger value="juros">Juros</TabsTrigger>
+            <TabsTrigger value="juros">Taxa Cartão</TabsTrigger>
             <TabsTrigger value="regras">Regras</TabsTrigger>
             <TabsTrigger value="minuta">Minuta</TabsTrigger>
             <TabsTrigger value="vantagens">Vantagens Locadora</TabsTrigger>
@@ -574,7 +574,7 @@ export default function Supervisor({ user }: { user: any }) {
           <TabsContent value="juros">
             <Card className="bg-zinc-900 border-zinc-800">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-white">Juros por Parcela</CardTitle>
+                <CardTitle className="text-white">Taxa por Parcelamento (Cartão)</CardTitle>
                 <div className="flex gap-2">
                   <SalvarTodos endpoint="interest-rates" rows={interestRates} saver={(row: any) => saveRow('interest-rates', row)} />
                   <Button size="sm" variant="outline" onClick={() => addRow('interest-rates', interestRates, setInterestRates, { parcelas: 1, taxa: 0 })}>
@@ -587,7 +587,7 @@ export default function Supervisor({ user }: { user: any }) {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Parcelas</TableHead>
-                      <TableHead>Juros (%)</TableHead>
+                      <TableHead>Taxa Fixa (R$)</TableHead>
                       <TableHead className="text-right">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
