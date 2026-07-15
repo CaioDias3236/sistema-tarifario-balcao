@@ -22,6 +22,7 @@ export default function Supervisor({ user }: { user: any }) {
   const [settings, setSettings] = useState<any[]>([]);
   const [vantagens, setVantagens] = useState<any[]>([]);
   const [novaVantagem, setNovaVantagem] = useState('');
+  const [propostas, setPropostas] = useState<any[]>([]);
 
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
 
@@ -39,7 +40,7 @@ export default function Supervisor({ user }: { user: any }) {
   }, []);
 
   const fetchData = async () => {
-    const [c, t, f, tp, ir, r, u, s, v] = await Promise.all([
+    const [c, t, f, tp, ir, r, u, s, v, p] = await Promise.all([
       fetch('/api/categories').then(r => r.json()),
       fetch('/api/taxes').then(r => r.json()),
       fetch('/api/franchises').then(r => r.json()),
@@ -48,7 +49,8 @@ export default function Supervisor({ user }: { user: any }) {
       fetch('/api/rules').then(r => r.json()),
       fetch('/api/users').then(r => r.json()),
       fetch('/api/settings').then(r => r.json()),
-      fetch('/api/vantagens').then(r => r.json())
+      fetch('/api/vantagens').then(r => r.json()),
+      fetch('/api/proposals').then(r => r.json())
     ]);
     setCategories(c);
     setTaxes(t);
@@ -59,6 +61,7 @@ export default function Supervisor({ user }: { user: any }) {
     setUsers(u);
     setSettings(s);
     setVantagens(Array.isArray(v) ? v : []);
+    setPropostas(Array.isArray(p) ? p : []);
   };
 
   const handleAddVantagem = async () => {
@@ -118,6 +121,7 @@ export default function Supervisor({ user }: { user: any }) {
             <TabsTrigger value="regras">Regras</TabsTrigger>
             <TabsTrigger value="minuta">Minuta</TabsTrigger>
             <TabsTrigger value="vantagens">Vantagens Locadora</TabsTrigger>
+            <TabsTrigger value="propostas">Propostas</TabsTrigger>
             <TabsTrigger value="usuarios">Usuários</TabsTrigger>
           </TabsList>
           
@@ -458,6 +462,48 @@ export default function Supervisor({ user }: { user: any }) {
                         <TableCell className="flex gap-2 justify-end">
                           <Button size="icon" variant="ghost" className="text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10" onClick={() => handleSave('vantagens', v)}><Save className="w-4 h-4" /></Button>
                           <Button size="icon" variant="ghost" className="text-red-500 hover:text-red-400 hover:bg-red-500/10" onClick={() => handleDelete('vantagens', v.id)}><Trash2 className="w-4 h-4" /></Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="propostas">
+            <Card className="bg-zinc-900 border-zinc-800">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-white">Propostas</CardTitle>
+                <p className="text-sm text-zinc-500">Histórico de propostas geradas pelos vendedores.</p>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Cliente</TableHead>
+                      <TableHead>Telefone</TableHead>
+                      <TableHead>Vendedor</TableHead>
+                      <TableHead>Data</TableHead>
+                      <TableHead className="w-[80px] text-right">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {propostas.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center text-zinc-500 py-6">
+                          Nenhuma proposta registrada ainda.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {propostas.map(p => (
+                      <TableRow key={p.id}>
+                        <TableCell className="font-medium text-zinc-200">{p.clientName}</TableCell>
+                        <TableCell>{p.clientPhone || '—'}</TableCell>
+                        <TableCell>{p.createdBy || '—'}</TableCell>
+                        <TableCell>{p.created_at ? new Date(p.created_at).toLocaleString('pt-BR') : '—'}</TableCell>
+                        <TableCell className="flex gap-2 justify-end">
+                          <Button size="icon" variant="ghost" className="text-red-500 hover:text-red-400 hover:bg-red-500/10" onClick={() => handleDelete('proposals', p.id)}><Trash2 className="w-4 h-4" /></Button>
                         </TableCell>
                       </TableRow>
                     ))}
