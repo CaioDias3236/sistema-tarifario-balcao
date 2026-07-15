@@ -1,7 +1,5 @@
 import express from "express";
 import path from "path";
-import fs from "fs";
-import os from "os";
 import cookieParser from "cookie-parser";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
@@ -12,11 +10,6 @@ dotenv.config({ path: ".env.local" });
 dotenv.config();
 
 const JWT_SECRET = process.env.JWT_SECRET || "super-secret-sda-v8-key";
-// Na Vercel o filesystem do projeto é read-only; apenas /tmp é gravável (e
-// efêmero, por instância). Fora dela, o db.json fica na raiz e é persistente.
-const DB_FILE = process.env.VERCEL
-  ? path.join(os.tmpdir(), "db.json")
-  : path.join(process.cwd(), "db.json");
 
 // Configuração do Supabase (reaproveita as mesmas vars do cliente Vite).
 // Normaliza a URL (mesmo motivo do client): remove barra final e um "/rest/v1"
@@ -47,61 +40,6 @@ const COOKIE_OPTS = {
   secure: IS_PROD,
   sameSite: (IS_PROD ? "none" : "lax") as "none" | "lax",
 };
-
-// --- Mock Database Structure ---
-type Database = {
-  franchises: any[];
-  interestRates: any[];
-  thirdParties: any[];
-  settings: any[];
-  proposals: any[];
-};
-
-const defaultDb: Database = {
-  franchises: [
-    { id: 1, combo: "REDUZIDA", tipo: "padrao", valor: 50 },
-    { id: 2, combo: "REDUZIDA", tipo: "alcada", valor: 40 },
-    { id: 3, combo: "ZERO", tipo: "padrao", valor: 100 },
-    { id: 4, combo: "ZERO", tipo: "alcada", valor: 80 },
-  ],
-  interestRates: [
-    { id: 1, parcelas: 1, taxa: 0 },
-    { id: 2, parcelas: 2, taxa: 3 },
-    { id: 3, parcelas: 3, taxa: 5 },
-    { id: 4, parcelas: 4, taxa: 6 },
-    { id: 5, parcelas: 5, taxa: 8 },
-    { id: 6, parcelas: 6, taxa: 10 },
-  ],
-  thirdParties: [
-    { id: 1, de: 1, ate: 999, valor: 20 }
-  ],
-  settings: [
-    { id: 1, key: 'minuta', template: 'FEITO POR {{FEITO_POR}} - COMPOSIÇÃO DO FECHAMENTO: [{{PAGTO_BREAKDOWN}}] - KM LIVRE COM COBERTURA PARA NATAL E LITORAL/RN COM PROTEÇÃO COM RAIO DE 200KM DE NATAL/RN. ATENÇÃO PRORROGAÇÃO DE CONTRATO SOMENTE EM LOJA PARA VERIFICARMOS. DEVOLUÇÃO MESMO LOCAL DA RETIRADA - OBS EXTRA: {{OBS_EXTRA}}', apeloComercial: '🚨 RISCO CIVIL PATRIMONIAL ATIVADO: Contrato sem amparo de frota! O locatário assume responsabilidade integral com o próprio patrimônio por danos causados a terceiros.' }
-  ],
-  proposals: [],
-};
-
-// Initialize DB file (best-effort: em serverless o disco do projeto é read-only;
-// no /tmp da Vercel funciona, mas de forma efêmera).
-try {
-  if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify(defaultDb, null, 2));
-  }
-} catch (e) {
-  console.warn("Não foi possível inicializar o db.json (filesystem read-only?):", e);
-}
-
-function readDb(): Database {
-  try {
-    return JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
-  } catch (e) {
-    return defaultDb;
-  }
-}
-
-function writeDb(data: Database) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
-}
 
 // Middleware to verify JWT
 function authMiddleware(req: any, res: any, next: any) {
@@ -187,45 +125,7 @@ app.use(cookieParser());
     res.json({ user: req.user });
   });
 
-  // DB Endpoints (simplified CRUD)
-  const createCrud = (path: string, collection: keyof Database, requireSupervisorWrite = false) => {
-    app.get(`/api/${path}`, authMiddleware, (req, res) => {
-      const db = readDb();
-      res.json(db[collection]);
-    });
-
-    app.post(`/api/${path}`, authMiddleware, requireSupervisorWrite ? supervisorMiddleware : (req,res,next)=>next(), (req, res) => {
-      const db = readDb();
-      const newItem = { id: Date.now(), ...req.body };
-      db[collection].push(newItem);
-      writeDb(db);
-      res.json(newItem);
-    });
-
-    app.put(`/api/${path}/:id`, authMiddleware, requireSupervisorWrite ? supervisorMiddleware : (req,res,next)=>next(), (req, res) => {
-      const db = readDb();
-      const id = parseInt(req.params.id);
-      const index = db[collection].findIndex((i: any) => i.id === id);
-      if (index > -1) {
-        db[collection][index] = { ...db[collection][index], ...req.body, id };
-        writeDb(db);
-        res.json(db[collection][index]);
-      } else {
-        res.status(404).json({ error: "Not found" });
-      }
-    });
-
-    app.delete(`/api/${path}/:id`, authMiddleware, requireSupervisorWrite ? supervisorMiddleware : (req,res,next)=>next(), (req, res) => {
-      const db = readDb();
-      const id = parseInt(req.params.id);
-      db[collection] = db[collection].filter((i: any) => i.id !== id) as any;
-      writeDb(db);
-      res.json({ success: true });
-    });
-  };
-
-  // CRUD genérico sobre o Supabase (mesma ideia do createCrud, mas persiste no
-  // banco em vez do db.json). ID gerado pela coluna identity; escrita só SUPERVISOR.
+  // CRUD genérico sobre o Supabase. ID gerado pela coluna identity; escrita só SUPERVISOR.
   const createSupabaseCrud = (path: string, table: string) => {
     app.get(`/api/${path}`, authMiddleware, async (req, res) => {
       if (!supabaseAdmin) return res.status(500).json({ error: SUPABASE_MISSING_MSG });
