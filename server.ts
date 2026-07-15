@@ -18,8 +18,11 @@ const DB_FILE = process.env.VERCEL
   ? path.join(os.tmpdir(), "db.json")
   : path.join(process.cwd(), "db.json");
 
-// Configuração do Supabase (reaproveita as mesmas vars do cliente Vite)
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+// Configuração do Supabase (reaproveita as mesmas vars do cliente Vite).
+// Normaliza a URL (mesmo motivo do client): remove barra final e um "/rest/v1"
+// acidental, que quebrariam o getUser da ponte com "Invalid path specified...".
+const SUPABASE_URL = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL)
+  ?.trim().replace(/\/+$/, "").replace(/\/rest\/v1$/, "");
 const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
