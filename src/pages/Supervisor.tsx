@@ -72,7 +72,7 @@ export default function Supervisor({ user }: { user: any }) {
     // Coleções persistidas no Supabase têm ID (identity) começando em 1, então a
     // heurística `id > 1000` (válida só para as coleções do db.json com Date.now())
     // não serve: aqui, qualquer id presente significa registro existente => PUT.
-    const supabaseBacked = ['vantagens', 'categories', 'taxes', 'rules'];
+    const supabaseBacked = ['vantagens', 'categories', 'taxes', 'rules', 'franchises', 'interest-rates', 'third-parties'];
     const method = supabaseBacked.includes(endpoint)
       ? (data.id ? 'PUT' : 'POST')
       : (data.id && typeof data.id === 'number' && data.id > 1000 ? 'PUT' : 'POST');
