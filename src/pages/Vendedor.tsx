@@ -542,7 +542,7 @@ export default function Vendedor({ user }: { user: any }) {
           })()}
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div className={`col-span-12 ${presentationMode && categoriaSelecionada && comboSelecionado ? 'lg:col-span-5' : 'lg:col-span-12'}`}>
+            <div className={`col-span-12 ${presentationMode && categoriaSelecionada && comboSelecionado ? 'lg:col-span-8' : 'lg:col-span-12'}`}>
               <Card>
                 <CardHeader className="pb-0">
                   <CardTitle>Tabela de Preços e Combos</CardTitle>
@@ -603,6 +603,27 @@ export default function Vendedor({ user }: { user: any }) {
                 <>
                 <div className={`col-span-12 ${presentationMode ? 'lg:col-span-4' : 'lg:col-span-12'}`}>
                   <div className={`grid grid-cols-1 gap-6 ${!presentationMode ? 'md:grid-cols-2' : ''}`}>
+                    {presentationMode && (
+                      <Card className="bg-zinc-900 border-emerald-500/20 h-fit">
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-lg text-emerald-400">Vantagens Locadora</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          {params.vantagens && params.vantagens.length > 0 ? (
+                            <ul className="space-y-2">
+                              {params.vantagens.map((v: any) => (
+                                <li key={v.id} className="flex items-start gap-2 text-sm text-zinc-300">
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
+                                  <span>{v.descricao}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-sm text-zinc-500">Nenhuma vantagem cadastrada.</p>
+                          )}
+                        </CardContent>
+                      </Card>
+                    )}
                     <Card className="border-emerald-500/30 shadow-sm bg-zinc-900 h-fit">
                       <CardHeader className="bg-emerald-500/5 border-b border-emerald-500/20 pb-4">
                         <CardTitle className="text-emerald-400">Resumo da Proposta</CardTitle>
@@ -742,29 +763,6 @@ export default function Vendedor({ user }: { user: any }) {
                 )}
               </div>
             </div>
-            {presentationMode && (
-              <div className="col-span-12 lg:col-span-3">
-                <Card className="bg-zinc-900 border-emerald-500/20 h-fit">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-lg text-emerald-400">Vantagens Locadora</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {params.vantagens && params.vantagens.length > 0 ? (
-                      <ul className="space-y-2">
-                        {params.vantagens.map((v: any) => (
-                          <li key={v.id} className="flex items-start gap-2 text-sm text-zinc-300">
-                            <CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
-                            <span>{v.descricao}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-sm text-zinc-500">Nenhuma vantagem cadastrada.</p>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-            )}
             </>
             );
           })()}
