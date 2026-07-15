@@ -51,9 +51,6 @@ const COOKIE_OPTS = {
 // --- Mock Database Structure ---
 type Database = {
   users: any[];
-  categories: any[];
-  taxes: any[];
-  rules: any[];
   franchises: any[];
   interestRates: any[];
   thirdParties: any[];
@@ -65,24 +62,6 @@ const defaultDb: Database = {
   users: [
     { id: 1, name: "Vendedor", username: "vendedor", password: "123", role: "VENDEDOR" },
     { id: 2, name: "Supervisor", username: "supervisor", password: "123", role: "SUPERVISOR" },
-  ],
-  categories: [
-    { id: 1, sigla: "C", padrao: 100, piso: 80, active: true },
-    { id: 2, sigla: "M", padrao: 120, piso: 90, active: true },
-    { id: 3, sigla: "S", padrao: 150, piso: 110, active: true },
-    { id: 4, sigla: "LX", padrao: 200, piso: 150, active: true },
-    { id: 5, sigla: "D", padrao: 300, piso: 250, active: true },
-  ],
-  taxes: [
-    { id: 1, nome: "Lavagem Padrão", valor: 38, tipo: "fixo", flex_mode: false, flex_value: 0, active: true },
-    { id: 2, nome: "Retorno entre Lojas", valor: 90, tipo: "fixo", flex_mode: false, flex_value: 0, active: true },
-    { id: 3, nome: "Taxa Balcão", valor: 0, tipo: "flex", flex_mode: true, flex_value: 0, active: true },
-  ],
-  rules: [
-    { id: 1, campo: "dias", de: 16, ate: 999, cobrancaDias: 0, texto: "⚠️ CUIDADO COM ALUGUEL: Contratos longos requerem checagem de cadastro estrito." },
-    { id: 2, campo: "horas", de: 0, ate: 3, cobrancaDias: 0, texto: "ℹ️ Tolerância comercial: Período curto de relógio. Não cobrar hora extra." },
-    { id: 3, campo: "horas", de: 4, ate: 6, cobrancaDias: 0.5, texto: "🌓 Meia Diária Ativada: Rebarba de relógio gera acréscimo de 0.5 diária no contrato." },
-    { id: 4, campo: "horas", de: 7, ate: 999, cobrancaDias: 1, texto: "🚨 Outra Diária Integrada: Limite de tolerância estourado. Cobrança de 1 diária extra." }
   ],
   franchises: [
     { id: 1, combo: "REDUZIDA", tipo: "padrao", valor: 50 },
@@ -260,9 +239,51 @@ app.use(cookieParser());
     });
   };
 
-  createCrud("categories", "categories", true);
-  createCrud("taxes", "taxes", true);
-  createCrud("rules", "rules", true);
+  // CRUD genérico sobre o Supabase (mesma ideia do createCrud, mas persiste no
+  // banco em vez do db.json). ID gerado pela coluna identity; escrita só SUPERVISOR.
+  const createSupabaseCrud = (path: string, table: string) => {
+    app.get(`/api/${path}`, authMiddleware, async (req, res) => {
+      if (!supabaseAdmin) return res.status(500).json({ error: SUPABASE_MISSING_MSG });
+      const { data, error } = await supabaseAdmin.from(table).select("*").order("id", { ascending: true });
+      if (error) return res.status(500).json({ error: error.message });
+      res.json(data ?? []);
+    });
+
+    app.post(`/api/${path}`, authMiddleware, supervisorMiddleware, async (req, res) => {
+      if (!supabaseAdmin) return res.status(500).json({ error: SUPABASE_MISSING_MSG });
+      // Descarta id/created_at do corpo — o banco os gera.
+      const payload = { ...(req.body ?? {}) };
+      delete payload.id;
+      delete payload.created_at;
+      const { data, error } = await supabaseAdmin.from(table).insert(payload).select().single();
+      if (error) return res.status(500).json({ error: error.message });
+      res.json(data);
+    });
+
+    app.put(`/api/${path}/:id`, authMiddleware, supervisorMiddleware, async (req, res) => {
+      if (!supabaseAdmin) return res.status(500).json({ error: SUPABASE_MISSING_MSG });
+      const id = parseInt(req.params.id);
+      const payload = { ...(req.body ?? {}) };
+      delete payload.id;
+      delete payload.created_at;
+      const { data, error } = await supabaseAdmin.from(table).update(payload).eq("id", id).select().maybeSingle();
+      if (error) return res.status(500).json({ error: error.message });
+      if (!data) return res.status(404).json({ error: "Not found" });
+      res.json(data);
+    });
+
+    app.delete(`/api/${path}/:id`, authMiddleware, supervisorMiddleware, async (req, res) => {
+      if (!supabaseAdmin) return res.status(500).json({ error: SUPABASE_MISSING_MSG });
+      const id = parseInt(req.params.id);
+      const { error } = await supabaseAdmin.from(table).delete().eq("id", id);
+      if (error) return res.status(500).json({ error: error.message });
+      res.json({ success: true });
+    });
+  };
+
+  createSupabaseCrud("categories", "categories");
+  createSupabaseCrud("taxes", "taxes");
+  createSupabaseCrud("rules", "rules");
   createCrud("franchises", "franchises", true);
   createCrud("interest-rates", "interestRates", true);
   createCrud("third-parties", "thirdParties", true);
@@ -340,25 +361,30 @@ app.use(cookieParser());
   app.get("/api/system-params", authMiddleware, async (req, res) => {
     const db = readDb();
 
-    // Vantagens vêm do Supabase (não mais do db.json). Se o client não estiver
-    // configurado ou a consulta falhar, degradamos para lista vazia para não
+    // categories, taxes, rules e vantagens vêm do Supabase (não mais do db.json).
+    // Se o client não estiver configurado, degradamos para listas vazias para não
     // quebrar o carregamento da tela de cotação.
-    let vantagens: any[] = [];
+    let categories: any[] = [], taxes: any[] = [], rules: any[] = [], vantagens: any[] = [];
     if (supabaseAdmin) {
-      const { data } = await supabaseAdmin
-        .from("vantagens")
-        .select("*")
-        .order("id", { ascending: true });
-      vantagens = data ?? [];
+      const [cat, tax, rul, van] = await Promise.all([
+        supabaseAdmin.from("categories").select("*").order("id", { ascending: true }),
+        supabaseAdmin.from("taxes").select("*").order("id", { ascending: true }),
+        supabaseAdmin.from("rules").select("*").order("id", { ascending: true }),
+        supabaseAdmin.from("vantagens").select("*").order("id", { ascending: true }),
+      ]);
+      categories = (cat.data ?? []).filter((c: any) => c.active !== false);
+      taxes = (tax.data ?? []).filter((t: any) => t.active !== false);
+      rules = rul.data ?? [];
+      vantagens = van.data ?? [];
     }
 
     res.json({
-      categories: db.categories.filter(c => c.active !== false),
-      taxes: db.taxes.filter(t => t.active !== false),
+      categories,
+      taxes,
       franchises: db.franchises,
       interestRates: db.interestRates,
       thirdParties: db.thirdParties,
-      rules: db.rules,
+      rules,
       settings: db.settings,
       vantagens
     });
