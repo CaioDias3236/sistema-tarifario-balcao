@@ -23,6 +23,7 @@ export default function Supervisor({ user }: { user: any }) {
   const [vantagens, setVantagens] = useState<any[]>([]);
   const [novaVantagem, setNovaVantagem] = useState('');
   const [propostas, setPropostas] = useState<any[]>([]);
+  const [novoUsuario, setNovoUsuario] = useState({ name: '', login: '', password: '', role: 'VENDEDOR', loginTouched: false });
 
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
 
@@ -58,7 +59,7 @@ export default function Supervisor({ user }: { user: any }) {
     setThirdParties(tp);
     setInterestRates(ir);
     setRules(r);
-    setUsers(u);
+    setUsers(Array.isArray(u) ? u : []);
     setSettings(s);
     setVantagens(Array.isArray(v) ? v : []);
     setPropostas(Array.isArray(p) ? p : []);
@@ -90,6 +91,62 @@ export default function Supervisor({ user }: { user: any }) {
 
   const handleDelete = async (endpoint: string, id: number) => {
     await fetch(`/api/${endpoint}/${id}`, { method: 'DELETE' });
+    fetchData();
+  };
+
+  // --- Gerenciamento de usuários (Supabase Auth + perfis). Endpoints dedicados
+  // porque o id é uuid (não serve a heurística de PUT/POST do handleSave) e a
+  // criação exige senha.
+  const gerarLogin = (nome: string) => {
+    const base = nome.trim().toLowerCase()
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]+/g, '.').replace(/^\.+|\.+$/g, '');
+    return base ? `${base}@sda.com` : '';
+  };
+
+  const handleCreateUser = async () => {
+    const { name, login, password, role } = novoUsuario;
+    if (!name.trim() || !login.trim() || password.length < 6) {
+      alert('Preencha Nome e Login, e senha com ao menos 6 caracteres.');
+      return;
+    }
+    const res = await fetch('/api/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, login, password, role }),
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      alert('Erro ao criar usuário: ' + (e.error || res.status));
+      return;
+    }
+    setNovoUsuario({ name: '', login: '', password: '', role: 'VENDEDOR', loginTouched: false });
+    fetchData();
+  };
+
+  const handleSaveUser = async (u: any) => {
+    const body: any = { name: u.name, login: u.login, role: u.role };
+    if (u.password) body.password = u.password;
+    const res = await fetch(`/api/users/${u.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      alert('Erro ao salvar usuário: ' + (e.error || res.status));
+      return;
+    }
+    fetchData();
+  };
+
+  const handleDeleteUser = async (id: string) => {
+    const res = await fetch(`/api/users/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      alert('Erro ao excluir usuário: ' + (e.error || res.status));
+      return;
+    }
     fetchData();
   };
 
@@ -515,29 +572,75 @@ export default function Supervisor({ user }: { user: any }) {
 
           <TabsContent value="usuarios">
             <Card className="bg-zinc-900 border-zinc-800">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardHeader className="pb-2">
                 <CardTitle className="text-white">Gerenciar Usuários</CardTitle>
-                <Button size="sm" onClick={() => handleSave('users', { name: 'Novo Usuário', username: 'novo_user', password: '123', role: 'VENDEDOR' })}>
-                  <Plus className="w-4 h-4 mr-2"/> Novo Usuário
-                </Button>
+                <p className="text-sm text-zinc-500">Usuários reais do sistema (login via Supabase). O Nome preenche o {'{{FEITO_POR}}'} da minuta. A senha só é definida na criação ou redefinida na edição — nunca é exibida.</p>
               </CardHeader>
               <CardContent>
+                {/* Formulário de criação */}
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-2 mb-4 items-end">
+                  <div className="space-y-1">
+                    <Label className="text-zinc-400">Nome</Label>
+                    <Input
+                      value={novoUsuario.name}
+                      placeholder="João Silva"
+                      onChange={e => setNovoUsuario(s => ({ ...s, name: e.target.value, login: s.loginTouched ? s.login : gerarLogin(e.target.value) }))}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-zinc-400">Login</Label>
+                    <Input
+                      value={novoUsuario.login}
+                      placeholder="joao.silva@sda.com"
+                      onChange={e => setNovoUsuario(s => ({ ...s, login: e.target.value, loginTouched: true }))}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-zinc-400">Senha</Label>
+                    <Input
+                      value={novoUsuario.password}
+                      placeholder="mín. 6 dígitos"
+                      onChange={e => setNovoUsuario(s => ({ ...s, password: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-zinc-400">Papel</Label>
+                    <Select value={novoUsuario.role} onValueChange={v => setNovoUsuario(s => ({ ...s, role: v }))}>
+                      <SelectTrigger><SelectValue/></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="VENDEDOR">Vendedor</SelectItem>
+                        <SelectItem value="SUPERVISOR">Supervisor</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button onClick={handleCreateUser} className="shrink-0">
+                    <Plus className="w-4 h-4 mr-2"/> Criar
+                  </Button>
+                </div>
+
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Nome</TableHead>
-                      <TableHead>Username (Login)</TableHead>
-                      <TableHead>Senha</TableHead>
+                      <TableHead>Login</TableHead>
+                      <TableHead>Nova Senha</TableHead>
                       <TableHead>Papel</TableHead>
-                      <TableHead></TableHead>
+                      <TableHead className="w-[110px] text-right">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
+                    {users.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center text-zinc-500 py-6">
+                          Nenhum usuário encontrado.
+                        </TableCell>
+                      </TableRow>
+                    )}
                     {users.map(u => (
                       <TableRow key={u.id}>
-                        <TableCell><Input value={u.name} onChange={e => setUsers(users.map(x => x.id === u.id ? {...x, name: e.target.value} : x))} /></TableCell>
-                        <TableCell><Input value={u.username} onChange={e => setUsers(users.map(x => x.id === u.id ? {...x, username: e.target.value} : x))} /></TableCell>
-                        <TableCell><Input type="text" value={u.password} onChange={e => setUsers(users.map(x => x.id === u.id ? {...x, password: e.target.value} : x))} /></TableCell>
+                        <TableCell><Input value={u.name ?? ''} onChange={e => setUsers(users.map(x => x.id === u.id ? {...x, name: e.target.value} : x))} /></TableCell>
+                        <TableCell><Input value={u.login ?? ''} onChange={e => setUsers(users.map(x => x.id === u.id ? {...x, login: e.target.value} : x))} /></TableCell>
+                        <TableCell><Input value={u.password ?? ''} placeholder="(manter)" onChange={e => setUsers(users.map(x => x.id === u.id ? {...x, password: e.target.value} : x))} /></TableCell>
                         <TableCell>
                           <Select value={u.role} onValueChange={v => setUsers(users.map(x => x.id === u.id ? {...x, role: v} : x))}>
                             <SelectTrigger><SelectValue/></SelectTrigger>
@@ -547,10 +650,10 @@ export default function Supervisor({ user }: { user: any }) {
                             </SelectContent>
                           </Select>
                         </TableCell>
-                        <TableCell className="flex gap-2">
-                          <Button size="icon" variant="ghost" className="text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10" onClick={() => handleSave('users', u)}><Save className="w-4 h-4" /></Button>
+                        <TableCell className="flex gap-2 justify-end">
+                          <Button size="icon" variant="ghost" className="text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10" title="Salvar alterações" onClick={() => handleSaveUser(u)}><Save className="w-4 h-4" /></Button>
                           {u.id !== user.id && (
-                            <Button size="icon" variant="ghost" className="text-red-500 hover:text-red-400 hover:bg-red-500/10" onClick={() => handleDelete('users', u.id)}><Trash2 className="w-4 h-4" /></Button>
+                            <Button size="icon" variant="ghost" className="text-red-500 hover:text-red-400 hover:bg-red-500/10" title="Excluir" onClick={() => handleDeleteUser(u.id)}><Trash2 className="w-4 h-4" /></Button>
                           )}
                         </TableCell>
                       </TableRow>

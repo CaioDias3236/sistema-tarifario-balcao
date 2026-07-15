@@ -50,7 +50,6 @@ const COOKIE_OPTS = {
 
 // --- Mock Database Structure ---
 type Database = {
-  users: any[];
   franchises: any[];
   interestRates: any[];
   thirdParties: any[];
@@ -59,10 +58,6 @@ type Database = {
 };
 
 const defaultDb: Database = {
-  users: [
-    { id: 1, name: "Vendedor", username: "vendedor", password: "123", role: "VENDEDOR" },
-    { id: 2, name: "Supervisor", username: "supervisor", password: "123", role: "SUPERVISOR" },
-  ],
   franchises: [
     { id: 1, combo: "REDUZIDA", tipo: "padrao", valor: 50 },
     { id: 2, combo: "REDUZIDA", tipo: "alcada", valor: 40 },
@@ -140,19 +135,9 @@ app.use(cookieParser());
   // --- API Routes ---
   
   // Auth
-  app.post("/api/auth/login", (req, res) => {
-    const { username, password } = req.body;
-    const db = readDb();
-    const user = db.users.find(u => u.username === username && u.password === password);
-    
-    if (user) {
-      const token = jwt.sign({ id: user.id, username: user.username, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: '1d' });
-      res.cookie("token", token, COOKIE_OPTS);
-      res.json({ user: { id: user.id, username: user.username, role: user.role, name: user.name } });
-    } else {
-      res.status(401).json({ error: "Invalid credentials" });
-    }
-  });
+  // NOTA: a antiga rota POST /api/auth/login (validava senha em texto puro no
+  // db.json) foi REMOVIDA — era um bypass do Supabase Auth com credenciais padrão.
+  // O login real é 100% Supabase (Login.tsx → signInWithPassword) + a ponte abaixo.
 
   // Ponte de sessão: recebe o access_token do Supabase (login novo), valida-o
   // no Supabase e emite o cookie JWT legado para que a API de dados (que ainda
@@ -288,7 +273,6 @@ app.use(cookieParser());
   createSupabaseCrud("interest-rates", "interest_rates");
   createSupabaseCrud("third-parties", "third_parties");
   createSupabaseCrud("settings", "settings");
-  createCrud("users", "users", true);
 
   // --- Vantagens Locadora — persistidas no Supabase (tabela public.vantagens),
   // não mais no db.json. O ID é gerado pelo banco (coluna identity).
@@ -378,10 +362,84 @@ app.use(cookieParser());
     res.json({ success: true });
   });
 
+  // --- Gerenciamento de usuários REAIS (Supabase Auth + tabela perfis: id uuid,
+  // nome, role). Substitui o antigo createCrud("users") do db.json. Só SUPERVISOR.
+  // Senhas nunca são lidas de volta (o Auth guarda com hash): o campo senha é só de
+  // escrita — definido na criação ou redefinido na edição (em branco = mantém).
+  const normalizeRole = (r: any) =>
+    String(r ?? "VENDEDOR").toUpperCase().includes("SUPER") ? "SUPERVISOR" : "VENDEDOR";
+
+  app.get("/api/users", authMiddleware, supervisorMiddleware, async (req, res) => {
+    if (!supabaseAdmin) return res.status(500).json({ error: SUPABASE_MISSING_MSG });
+    const { data: list, error: listErr } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 200 });
+    if (listErr) return res.status(500).json({ error: listErr.message });
+    const { data: perfis } = await supabaseAdmin.from("perfis").select("*");
+    const byId: Record<string, any> = {};
+    (perfis ?? []).forEach((p: any) => { byId[p.id] = p; });
+    const users = (list?.users ?? []).map((u: any) => {
+      const p = byId[u.id] ?? {};
+      return { id: u.id, login: u.email ?? "", name: p.nome ?? "", role: normalizeRole(p.role) };
+    });
+    res.json(users);
+  });
+
+  app.post("/api/users", authMiddleware, supervisorMiddleware, async (req: any, res) => {
+    if (!supabaseAdmin) return res.status(500).json({ error: SUPABASE_MISSING_MSG });
+    const { login, password, name } = req.body ?? {};
+    const role = normalizeRole(req.body?.role);
+    if (!login || !String(login).includes("@")) return res.status(400).json({ error: "Login (e-mail) inválido." });
+    if (!password || String(password).length < 6) return res.status(400).json({ error: "Senha deve ter ao menos 6 caracteres." });
+    if (!name || !String(name).trim()) return res.status(400).json({ error: "Nome é obrigatório." });
+    const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
+      email: String(login).trim(), password: String(password), email_confirm: true,
+    });
+    if (error) return res.status(400).json({ error: error.message });
+    // upsert em perfis (id = id do Auth); upsert evita conflito com trigger que já crie a linha.
+    const { error: perr } = await supabaseAdmin.from("perfis").upsert(
+      { id: created.user.id, nome: String(name).trim(), role, updated_at: new Date().toISOString() },
+      { onConflict: "id" }
+    );
+    if (perr) return res.status(500).json({ error: perr.message });
+    res.json({ id: created.user.id, login, name, role });
+  });
+
+  app.put("/api/users/:id", authMiddleware, supervisorMiddleware, async (req: any, res) => {
+    if (!supabaseAdmin) return res.status(500).json({ error: SUPABASE_MISSING_MSG });
+    const id = req.params.id;
+    const { name, login, password } = req.body ?? {};
+    const role = normalizeRole(req.body?.role);
+    if (!name || !String(name).trim()) return res.status(400).json({ error: "Nome é obrigatório." });
+    const { error: perr } = await supabaseAdmin.from("perfis").upsert(
+      { id, nome: String(name).trim(), role, updated_at: new Date().toISOString() },
+      { onConflict: "id" }
+    );
+    if (perr) return res.status(500).json({ error: perr.message });
+    // Atualiza o Auth (e-mail e/ou senha) apenas quando informados.
+    const authPatch: any = {};
+    if (login) authPatch.email = String(login).trim();
+    if (password) {
+      if (String(password).length < 6) return res.status(400).json({ error: "Senha deve ter ao menos 6 caracteres." });
+      authPatch.password = String(password);
+    }
+    if (Object.keys(authPatch).length) {
+      const { error: aerr } = await supabaseAdmin.auth.admin.updateUserById(id, authPatch);
+      if (aerr) return res.status(400).json({ error: aerr.message });
+    }
+    res.json({ id, login, name, role });
+  });
+
+  app.delete("/api/users/:id", authMiddleware, supervisorMiddleware, async (req: any, res) => {
+    if (!supabaseAdmin) return res.status(500).json({ error: SUPABASE_MISSING_MSG });
+    const id = req.params.id;
+    if (id === String(req.user.id)) return res.status(400).json({ error: "Você não pode excluir o próprio usuário." });
+    const { error } = await supabaseAdmin.auth.admin.deleteUser(id);
+    if (error) return res.status(400).json({ error: error.message });
+    await supabaseAdmin.from("perfis").delete().eq("id", id); // caso não haja ON DELETE CASCADE
+    res.json({ success: true });
+  });
+
   // System State API to get all parameters for quotation in one request
   app.get("/api/system-params", authMiddleware, async (req, res) => {
-    const db = readDb();
-
     // categories, taxes, rules, franchises, interestRates, thirdParties, settings e
     // vantagens vêm do Supabase (não mais do db.json). Se o client não estiver
     // configurado, degradamos para listas vazias para não quebrar a tela de cotação.
