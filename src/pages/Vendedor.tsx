@@ -61,7 +61,19 @@ export default function Vendedor({ user }: { user: any }) {
   useEffect(() => {
     fetch('/api/system-params')
       .then(res => res.json())
-      .then(data => setParams(data));
+      .then(data => {
+        setParams(data);
+        // Lavagem já vem marcada por padrão (o vendedor pode desmarcar). Roda uma vez
+        // no mount, então não sobrescreve a escolha do usuário depois.
+        const lavagens = (data.taxes || []).filter((t: any) => String(t.nome).toLowerCase().includes('lavagem'));
+        if (lavagens.length > 0) {
+          setTaxasState(prev => {
+            const next = { ...prev };
+            lavagens.forEach((t: any) => { next[t.id] = true; });
+            return next;
+          });
+        }
+      });
   }, []);
 
   const handleLogout = async () => {
