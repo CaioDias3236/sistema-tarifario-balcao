@@ -339,22 +339,43 @@ app.use(cookieParser());
     res.json({ success: true });
   });
 
-  // Proposals
-  app.get("/api/proposals", authMiddleware, (req: any, res) => {
-    const db = readDb();
-    if (req.user.role === "SUPERVISOR") {
-      res.json(db.proposals);
-    } else {
-      res.json(db.proposals.filter(p => p.user_id === req.user.id));
+  // Proposals — persistidas no Supabase (tabela public.proposals), não mais no
+  // db.json. NÃO usa createSupabaseCrud porque o POST precisa ser liberado para o
+  // VENDEDOR (a fábrica exige supervisorMiddleware na escrita).
+  app.get("/api/proposals", authMiddleware, async (req: any, res) => {
+    if (!supabaseAdmin) return res.status(500).json({ error: SUPABASE_MISSING_MSG });
+    let query = supabaseAdmin.from("proposals").select("*").order("id", { ascending: false });
+    // Supervisor vê todas; vendedor vê só as suas.
+    if (req.user.role !== "SUPERVISOR") {
+      query = query.eq("user_id", String(req.user.id));
     }
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data ?? []);
   });
 
-  app.post("/api/proposals", authMiddleware, (req: any, res) => {
-    const db = readDb();
-    const newItem = { id: Date.now(), user_id: req.user.id, created_at: new Date().toISOString(), ...req.body };
-    db.proposals.push(newItem);
-    writeDb(db);
-    res.json(newItem);
+  app.post("/api/proposals", authMiddleware, async (req: any, res) => {
+    if (!supabaseAdmin) return res.status(500).json({ error: SUPABASE_MISSING_MSG });
+    // Monta payload só com colunas conhecidas — ignora id/createdAt/campos extras do
+    // corpo (o banco gera id e created_at).
+    const body = req.body ?? {};
+    const payload = {
+      clientName: body.clientName ?? "",
+      clientPhone: body.clientPhone ?? "",
+      createdBy: body.createdBy ?? "",
+      user_id: String(req.user.id),
+    };
+    const { data, error } = await supabaseAdmin.from("proposals").insert(payload).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  app.delete("/api/proposals/:id", authMiddleware, supervisorMiddleware, async (req, res) => {
+    if (!supabaseAdmin) return res.status(500).json({ error: SUPABASE_MISSING_MSG });
+    const id = parseInt(req.params.id);
+    const { error } = await supabaseAdmin.from("proposals").delete().eq("id", id);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true });
   });
 
   // System State API to get all parameters for quotation in one request

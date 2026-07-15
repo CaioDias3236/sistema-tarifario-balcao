@@ -8,8 +8,9 @@ import { Checkbox } from '@/src/components/ui/checkbox';
 import { Button } from '@/src/components/ui/button';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/src/components/ui/table';
 import { Badge } from '@/src/components/ui/badge';
-import { LogOut, Trash2, MonitorPlay, ArrowLeft, Sun, Moon, LogOut as LogOutIcon, CheckCircle2 } from 'lucide-react';
+import { LogOut, Trash2, MonitorPlay, ArrowLeft, Sun, Moon, LogOut as LogOutIcon, CheckCircle2, Send } from 'lucide-react';
 import { differenceInMinutes, parseISO } from 'date-fns';
+import confetti from 'canvas-confetti';
 import { supabase } from '@/src/lib/supabase';
 
 export default function Vendedor({ user }: { user: any }) {
@@ -40,6 +41,11 @@ export default function Vendedor({ user }: { user: any }) {
   const [categoriaSelecionada, setCategoriaSelecionada] = useState<number | null>(null);
   const [comboSelecionado, setComboSelecionado] = useState<string | null>(null);
 
+  // Dados do Cliente State
+  const [clientName, setClientName] = useState('');
+  const [clientPhone, setClientPhone] = useState('');
+  const [enviando, setEnviando] = useState(false);
+
   const [presentationMode, setPresentationMode] = useState(false);
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
 
@@ -62,6 +68,43 @@ export default function Vendedor({ user }: { user: any }) {
     await supabase.auth.signOut();            // encerra a sessão do Supabase
     await fetch('/api/auth/logout', { method: 'POST' }); // limpa o cookie do Express
     window.location.href = '/';
+  };
+
+  // Máscara de telefone BR em tempo real: (84) 99981-1619 (11 díg.) ou
+  // (84) 3221-1619 (10 díg.). Formata parcialmente enquanto o usuário digita.
+  const formatTelefone = (v: string) => {
+    const d = v.replace(/\D/g, '').slice(0, 11);
+    if (d.length === 0) return '';
+    if (d.length <= 2) return `(${d}`;
+    if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+    if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+    return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  };
+
+  // Salva a proposta (dados básicos do cliente) e comemora com confete.
+  const handleEnviarProposta = async () => {
+    if (!clientName.trim() || enviando) return;
+    setEnviando(true);
+    confetti({ particleCount: 120, spread: 70, origin: { y: 0.6 } });
+    try {
+      const res = await fetch('/api/proposals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: Date.now(),
+          clientName: clientName.trim(),
+          clientPhone,
+          createdBy: user.name,
+          createdAt: new Date().toISOString(),
+        }),
+      });
+      if (!res.ok) throw new Error(`POST /api/proposals falhou (${res.status})`);
+    } catch (err) {
+      console.error(err);
+      alert('Não foi possível salvar a proposta. Tente novamente.');
+    } finally {
+      setEnviando(false);
+    }
   };
 
   if (!params) return <div className="p-8">Carregando parâmetros do sistema...</div>;
@@ -234,7 +277,7 @@ export default function Vendedor({ user }: { user: any }) {
         <div className="bg-zinc-900/50 border-b border-zinc-800 text-white p-4 flex justify-between items-center">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 bg-emerald-600 rounded flex items-center justify-center font-bold">V8</div>
-            <h1 className="text-xl font-bold">Proposta de Locação</h1>
+            <h1 className="text-xl font-bold">Proposta de Locação{clientName.trim() ? ` para: ${clientName.trim()}` : ''}</h1>
           </div>
           <Button variant="outline" onClick={() => setPresentationMode(false)}>
             <ArrowLeft className="w-4 h-4 mr-2"/> Voltar
@@ -247,7 +290,39 @@ export default function Vendedor({ user }: { user: any }) {
         {/* Lado Esquerdo - Controles (Oculto no modo apresentação) */}
         {!presentationMode && (
           <div className="col-span-12 lg:col-span-4 space-y-6">
-            
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg">Dados do Cliente</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-1">
+                  <Label>Nome</Label>
+                  <Input value={clientName} onChange={e => setClientName(e.target.value)} placeholder="Nome do cliente" />
+                </div>
+                <div className="space-y-1">
+                  <Label>Telefone</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={clientPhone}
+                      onChange={e => setClientPhone(formatTelefone(e.target.value))}
+                      placeholder="(84) 99981-1619"
+                      inputMode="tel"
+                    />
+                    <Button
+                      size="icon"
+                      className="shrink-0"
+                      disabled={!clientName.trim() || enviando}
+                      onClick={handleEnviarProposta}
+                      title={clientName.trim() ? 'Enviar proposta' : 'Preencha o nome do cliente'}
+                    >
+                      <Send className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-lg">1. Período de Locação</CardTitle>
