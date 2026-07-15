@@ -287,8 +287,8 @@ app.use(cookieParser());
   createSupabaseCrud("franchises", "franchises");
   createSupabaseCrud("interest-rates", "interest_rates");
   createSupabaseCrud("third-parties", "third_parties");
+  createSupabaseCrud("settings", "settings");
   createCrud("users", "users", true);
-  createCrud("settings", "settings", true);
 
   // --- Vantagens Locadora — persistidas no Supabase (tabela public.vantagens),
   // não mais no db.json. O ID é gerado pelo banco (coluna identity).
@@ -361,13 +361,13 @@ app.use(cookieParser());
   app.get("/api/system-params", authMiddleware, async (req, res) => {
     const db = readDb();
 
-    // categories, taxes, rules, franchises, interestRates, thirdParties e vantagens
-    // vêm do Supabase (não mais do db.json). Se o client não estiver configurado,
-    // degradamos para listas vazias para não quebrar a tela de cotação.
+    // categories, taxes, rules, franchises, interestRates, thirdParties, settings e
+    // vantagens vêm do Supabase (não mais do db.json). Se o client não estiver
+    // configurado, degradamos para listas vazias para não quebrar a tela de cotação.
     let categories: any[] = [], taxes: any[] = [], rules: any[] = [], vantagens: any[] = [];
-    let franchises: any[] = [], interestRates: any[] = [], thirdParties: any[] = [];
+    let franchises: any[] = [], interestRates: any[] = [], thirdParties: any[] = [], settings: any[] = [];
     if (supabaseAdmin) {
-      const [cat, tax, rul, van, fra, ir, tp] = await Promise.all([
+      const [cat, tax, rul, van, fra, ir, tp, set] = await Promise.all([
         supabaseAdmin.from("categories").select("*").order("id", { ascending: true }),
         supabaseAdmin.from("taxes").select("*").order("id", { ascending: true }),
         supabaseAdmin.from("rules").select("*").order("id", { ascending: true }),
@@ -375,6 +375,7 @@ app.use(cookieParser());
         supabaseAdmin.from("franchises").select("*").order("id", { ascending: true }),
         supabaseAdmin.from("interest_rates").select("*").order("id", { ascending: true }),
         supabaseAdmin.from("third_parties").select("*").order("id", { ascending: true }),
+        supabaseAdmin.from("settings").select("*").order("id", { ascending: true }),
       ]);
       categories = (cat.data ?? []).filter((c: any) => c.active !== false);
       taxes = (tax.data ?? []).filter((t: any) => t.active !== false);
@@ -383,6 +384,7 @@ app.use(cookieParser());
       franchises = fra.data ?? [];
       interestRates = ir.data ?? [];
       thirdParties = tp.data ?? [];
+      settings = set.data ?? [];
     }
 
     res.json({
@@ -392,7 +394,7 @@ app.use(cookieParser());
       interestRates,
       thirdParties,
       rules,
-      settings: db.settings,
+      settings,
       vantagens
     });
   });
